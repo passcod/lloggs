@@ -1,0 +1,36 @@
+[package]
+name = "lloggs"
+version = "1.0.0"
+
+authors = ["Félix Saparelli <felix@passcod.name>"]
+license = "Apache-2.0 OR MIT"
+description = "Logging configuration for clap applications"
+categories = ["command-line-interface", "development-tools::debugging"]
+keywords = ["logging", "clap", "cli"]
+
+documentation = "https://docs.rs/lloggs"
+repository = "https://github.com/passcod/lloggs"
+readme = "README.md"
+
+rust-version = "1.74.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.0", features = [
+	"derive",
+	"std",
+], default-features = false }
+enable-ansi-support = "0.2.1"
+time = { version = "0.3.0", features = [
+	"formatting",
+	"macros",
+], optional = true }
+tracing-appender = { version = "0.2.3", optional = true }
+tracing-subscriber = { version = "0.3.18", features = [
+	"env-filter",
+	"json",
+], optional = true }
+
+[features]
+default = ["tracing"]
+tracing = ["dep:time", "dep:tracing-subscriber", "dep:tracing-appender"]
