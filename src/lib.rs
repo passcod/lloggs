@@ -208,8 +208,7 @@ impl LoggingArgs {
 
 		let color = self.color.with_env().with_windows();
 
-		let timeless =
-			var("JOURNAL_STREAM").is_ok() || var("DEBUG_INVOCATION").is_ok() || self.log_timeless;
+		let timeless = is_systemd() || self.log_timeless;
 
 		let mut builder = tracing_subscriber::fmt()
 			.with_env_filter(level_map(self.verbose))
@@ -250,7 +249,7 @@ pub struct PreArgs {
 	/// Whether to include timestamps in logs.
 	///
 	/// This is set to `true` if any of the following environment variables are present:
-	/// - `JOURNAL_STREAM` (indicating systemd)
+	/// - `JOURNAL_STREAM` (indicating systemd) if stderr isn't a terminal
 	/// - `DEBUG_INVOCATION` (indicating systemd in debug mode)
 	/// - `LOG_TIMELESS` (custom)
 	pub timeless: bool,
@@ -286,9 +285,7 @@ impl PreArgs {
 			}
 		});
 
-		let timeless = var("JOURNAL_STREAM").is_ok()
-			|| var("DEBUG_INVOCATION").is_ok()
-			|| var("LOG_TIMELESS").is_ok();
+		let timeless = is_systemd() || var("LOG_TIMELESS").is_ok();
 
 		let color = ColourMode::default().with_env().with_windows();
 
@@ -351,7 +348,7 @@ impl ColourMode {
 	/// Whether to use colours.
 	pub fn enabled(self) -> bool {
 		match self {
-			ColourMode::Auto => std::io::stderr().is_terminal(),
+			ColourMode::Auto => is_terminal(),
 			ColourMode::Always => true,
 			ColourMode::Never => false,
 		}
@@ -387,4 +384,12 @@ impl ColourMode {
 			}
 		}
 	}
+}
+
+fn is_terminal() -> bool {
+	std::io::stderr().is_terminal()
+}
+
+fn is_systemd() -> bool {
+	(var("JOURNAL_STREAM").is_ok() && !is_terminal()) || var("DEBUG_INVOCATION").is_ok()
 }
