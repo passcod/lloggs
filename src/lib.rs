@@ -39,6 +39,16 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Features
+//!
+//! ## `tracing` (default)
+//!
+//! Include functionality to instantiate a [`tracing_subscriber`] based on the logging options.
+//!
+//! ## `miette-7`
+//!
+//! Return [`miette::Report`]s instead of Boxed errors.
 
 use std::{env::var, io::IsTerminal, path::PathBuf};
 
@@ -46,6 +56,37 @@ use clap::{ArgAction, Parser, ValueEnum, ValueHint};
 
 #[cfg(feature = "tracing")]
 pub use tracing_appender::non_blocking::WorkerGuard;
+
+#[cfg(feature = "miette-7")]
+type Error = miette::Report;
+#[cfg(not(feature = "miette-7"))]
+type Error = Box<dyn std::error::Error + Sync + Send>;
+
+type Result<T> = std::result::Result<T, Error>;
+
+fn string_err<T>(err: &str) -> Result<T> {
+	#[cfg(feature = "miette-7")]
+	{
+		Err(miette::miette!("{err}"))
+	}
+
+	#[cfg(not(feature = "miette-7"))]
+	{
+		Err(err.into())
+	}
+}
+
+fn tracing_err(err: Box<dyn std::error::Error + Send + Sync>) -> Error {
+	#[cfg(feature = "miette-7")]
+	{
+		miette::Report::from_err(Box::leak(err) as &_)
+	}
+
+	#[cfg(not(feature = "miette-7"))]
+	{
+		err
+	}
+}
 
 /// Clap flags that control logging.
 ///
@@ -167,10 +208,7 @@ impl LoggingArgs {
 	///
 	/// Panics if logging cannot be initialised.
 	#[cfg(feature = "tracing")]
-	pub fn setup(
-		&self,
-		level_map: impl FnOnce(u8) -> &'static str,
-	) -> Result<WorkerGuard, Box<dyn std::error::Error + Sync + Send>> {
+	pub fn setup(&self, level_map: impl FnOnce(u8) -> &'static str) -> Result<WorkerGuard> {
 		use std::{env::current_exe, fs::metadata, io::stderr};
 		use time::{macros::format_description, OffsetDateTime};
 		use tracing_appender::{non_blocking, rolling};
@@ -198,7 +236,7 @@ impl LoggingArgs {
 			} else if let (Some(parent), Some(file_name)) = (file.parent(), file.file_name()) {
 				(parent.into(), PathBuf::from(file_name))
 			} else {
-				return Err("Failed to determine log file name".into());
+				return string_err("Failed to determine log file name");
 			};
 
 			non_blocking(rolling::never(dir, filename))
@@ -306,7 +344,7 @@ impl PreArgs {
 	/// Panics in debug mode if colours are enabled or automatic, but the `ansi` feature is not
 	/// enabled on the `tracing-subscriber` dependency.
 	#[cfg(feature = "tracing")]
-	pub fn setup(&self) -> Result<Option<WorkerGuard>, Box<dyn std::error::Error + Sync + Send>> {
+	pub fn setup(&self) -> Result<Option<WorkerGuard>> {
 		use std::io::stderr;
 		use tracing_appender::non_blocking;
 		use tracing_subscriber::EnvFilter;
@@ -323,9 +361,12 @@ impl PreArgs {
 			.with_writer(writer);
 
 		if self.timeless {
-			sub.without_time().try_init().map(|_| Some(guard))
+			sub.without_time()
+				.try_init()
+				.map(|_| Some(guard))
+				.map_err(tracing_err)
 		} else {
-			sub.try_init().map(|_| Some(guard))
+			sub.try_init().map(|_| Some(guard)).map_err(tracing_err)
 		}
 	}
 }

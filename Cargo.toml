@@ -21,6 +21,7 @@ clap = { version = "4.5.30", features = [
 	"std",
 ], default-features = false }
 enable-ansi-support = "0.2.1"
+miette = { version = "7.5.0", optional = true }
 time = { version = "0.3.0", features = [
 	"formatting",
 	"macros",
@@ -34,3 +35,6 @@ tracing-subscriber = { version = "0.3.18", features = [
 [features]
 default = ["tracing"]
 tracing = ["dep:time", "dep:tracing-subscriber", "dep:tracing-appender"]
+
+miette-7 = ["dep:miette"]
+
