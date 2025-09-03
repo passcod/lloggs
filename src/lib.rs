@@ -7,7 +7,8 @@
 //!
 //! It also supports configuring logging before parsing arguments, to allow logging to be set up
 //! using environment variables such as `RUST_LOG` or `DEBUG_INVOCATION`, respects the `NO_COLOR`
-//! environment variable (<https://no-color.org>), and adjusts defaults when it detects systemd.
+//! (<https://no-color.org>) and `CLICOLOR_FORCE` (<https://bixense.com/clicolors/>) environment
+//! variables, and adjusts defaults when it detects systemd.
 //!
 //! # Example
 //!
@@ -125,7 +126,9 @@ fn tracing_err(err: Box<dyn std::error::Error + Send + Sync>) -> Error {
 pub struct LoggingArgs {
 	/// When to use terminal colours.
 	///
-	/// You can also set the `NO_COLOR` environment variable to disable colours.
+	/// You can also set the `NO_COLOR` environment variable to disable colours, or the
+	/// `CLICOLOR_FORCE` environment variable to force colours. Defaults to `auto`, which
+	/// checks whether the output is a terminal to decide.
 	#[arg(long, default_value = "auto", value_name = "MODE", alias = "colour")]
 	pub color: ColourMode,
 
@@ -244,7 +247,7 @@ impl LoggingArgs {
 			non_blocking(stderr())
 		};
 
-		let color = self.color.with_env().with_windows();
+		let color = ColourMode::from_env().or_if_auto(self.color);
 
 		let timeless = is_systemd() || self.log_timeless;
 
@@ -325,7 +328,7 @@ impl PreArgs {
 
 		let timeless = is_systemd() || var("LOG_TIMELESS").is_ok();
 
-		let color = ColourMode::default().with_env().with_windows();
+		let color = ColourMode::from_env();
 
 		Self {
 			logline,
@@ -386,12 +389,20 @@ pub enum ColourMode {
 }
 
 impl ColourMode {
+	/// Override only if the current value is auto.
+	pub(crate) fn or_if_auto(self, value: Self) -> Self {
+		match self {
+			Self::Auto => value,
+			other => other,
+		}
+	}
+
 	/// Whether to use colours.
 	pub fn enabled(self) -> bool {
 		match self {
-			ColourMode::Auto => is_terminal(),
-			ColourMode::Always => true,
-			ColourMode::Never => false,
+			Self::Auto => is_terminal(),
+			Self::Always => true,
+			Self::Never => false,
 		}
 	}
 
@@ -400,11 +411,28 @@ impl ColourMode {
 	/// Checks if the `NO_COLOR` environment variable is set, and returns `ColourMode::Never` if so.
 	///
 	/// This is compliant with <https://no-color.org>.
+	#[deprecated(since = "1.2.0", note = "use from_env instead")]
 	pub fn with_env(self) -> Self {
 		if var("NO_COLOR").is_ok() {
-			ColourMode::Never
+			Self::Never
 		} else {
 			self
+		}
+	}
+
+	/// Reads the environment and creates a default value.
+	///
+	/// This complies with <https://bixense.com/clicolors/>.
+	/// `CLICOLOR` is ignored because the default is always `Auto`.
+	pub fn from_env() -> Self {
+		if var("NO_COLOR").is_ok() {
+			Self::Never
+		} else if var("CLICOLOR_FORCE").is_ok() {
+			Self::Always
+		} else if enable_ansi_support::enable_ansi_support().is_err() {
+			Self::Never
+		} else {
+			Self::Auto
 		}
 	}
 
@@ -413,12 +441,13 @@ impl ColourMode {
 	/// Tries to enable ANSI colour support on Windows, and returns `ColourMode::Never` if it fails.
 	///
 	/// This is a no-op on non-Windows platforms, or if `ColourMode::Never` is already set.
+	#[deprecated(since = "1.2.0", note = "use from_env instead")]
 	pub fn with_windows(self) -> Self {
 		match self {
-			ColourMode::Never => ColourMode::Never,
+			Self::Never => Self::Never,
 			mode => {
 				if enable_ansi_support::enable_ansi_support().is_err() {
-					ColourMode::Never
+					Self::Never
 				} else {
 					mode
 				}
