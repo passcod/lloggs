@@ -51,7 +51,7 @@
 //!
 //! Return [`miette::Report`]s instead of Boxed errors.
 
-use std::{env::var, io::IsTerminal, path::PathBuf};
+use std::{env::var, ffi::OsStr, io::IsTerminal, path::PathBuf};
 
 use clap::{ArgAction, Parser, ValueEnum, ValueHint};
 
@@ -138,10 +138,6 @@ pub struct LoggingArgs {
 	/// times to increase verbosity.
 	///
 	/// You may want to use with `--log-file` to avoid polluting your terminal.
-	///
-	/// Setting `RUST_LOG` also works, and takes precedence, but is not recommended unless you know
-	/// what you're doing. However, using `RUST_LOG` is the only way to get logs from before these
-	/// options are parsed.
 	#[arg(
 		long,
 		short,
@@ -171,9 +167,9 @@ pub struct LoggingArgs {
 	/// This can be useful when running under service managers that capture logs, to avoid having
 	/// two timestamps. When run under systemd, this is automatically enabled.
 	///
-	/// This option is ignored if the log file is set, or when using `RUST_LOG` (as logging is
-	/// initialized before arguments are parsed in that case); you may want to use `LOG_TIMELESS`
-	/// instead in the latter case.
+	/// This option is ignored if the log file is set, or when using `RUST_LOG` or equivalent
+	/// (as logging is initialized before arguments are parsed in that case); you may want to use
+	/// `LOG_TIMELESS` instead in the latter case.
 	#[arg(long)]
 	pub log_timeless: bool,
 }
@@ -189,7 +185,7 @@ impl LoggingArgs {
 	///
 	/// # Level mapping
 	///
-	/// The `level_map` function is called with the verbosity level, and should return a string
+	/// The `level_map` function is called with the verbosity level, and should return a logline string
 	/// that [tracing-subscriber][1] can interpret as a `RUST_LOG` filter. For example:
 	///
 	/// [1]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html
@@ -297,12 +293,13 @@ pub struct PreArgs {
 
 	/// Whether to colourise terminal output.
 	///
-	/// This is set to `None` if the `NO_COLOR` environment variable is set, and to `Auto` otherwise.
+	/// This is set to `None` if the `NO_COLOR` environment variable is set or to `Always` if the
+	/// `CLICOLOR_FORCE` variable is set.
 	pub color: ColourMode,
 }
 
 impl PreArgs {
-	/// Obtain logging options before parsing arguments.
+	/// Obtain logging options before parsing arguments, from the given environment variable.
 	///
 	/// This should be called before parsing arguments, to optionally obtain logging configuration
 	/// before parsing arguments. This is useful for setting up logging early, so that it can be
@@ -311,14 +308,19 @@ impl PreArgs {
 	/// To configure logging, call [`setup()`][PreArgs::setup()] on the returned value if using the
 	/// default setup, or interpret the fields manually if you need to do something more custom.
 	///
-	/// The `DEBUG_INVOCATION` environment variable [may be set][1] by systemd [since v257][2]; if it
-	/// is present, this is equivalent to setting `RUST_LOG=debug`. If `RUST_LOG` is set, it takes
-	/// precedence.
+	/// The environment variable from the name given is read (hence called the "logline"), it must be
+	/// in `RUST_LOG` format. If your application is able to launch or supervise sub-programs which
+	/// may themselves interpret the `RUST_LOG` variable, it's preferable to use a different name that
+	/// matches your application here instead, so that logging can be targeted more precisely.
+	///
+	/// The `DEBUG_INVOCATION` environment variable [may be set][1] by systemd [since v257][2]; if
+	/// it is present, this is equivalent to setting the logline to `debug`. If the logline variable
+	/// is present too, `DEBUG_INVOCATION` is ignored.
 	///
 	/// [1]: https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#RestartMode=
 	/// [2]: https://mastodon.social/@pid_eins/113548780685011324
-	pub fn parse() -> Self {
-		let logline = var("RUST_LOG").ok().or_else(|| {
+	pub fn parse_with_env(var_name: impl AsRef<OsStr>) -> Self {
+		let logline = var(var_name).ok().or_else(|| {
 			if var("DEBUG_INVOCATION").is_ok() {
 				Some("debug".into())
 			} else {
@@ -337,12 +339,32 @@ impl PreArgs {
 		}
 	}
 
-	/// Configure logging if `RUST_LOG` or `DEBUG_INVOCATION` are set.
+	/// Obtain logging options before parsing arguments.
+	///
+	/// This should be called before parsing arguments, to optionally obtain logging configuration
+	/// before parsing arguments. This is useful for setting up logging early, so that it can be
+	/// used to log errors during argument parsing and interpretation.
+	///
+	/// To configure logging, call [`setup()`][PreArgs::setup()] on the returned value if using the
+	/// default setup, or interpret the fields manually if you need to do something more custom.
+	///
+	/// The `DEBUG_INVOCATION` environment variable [may be set][1] by systemd [since v257][2]; if it
+	/// is present, this is equivalent to setting `RUST_LOG=debug`. If `RUST_LOG` is set, it takes
+	/// precedence.
+	///
+	/// [1]: https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#RestartMode=
+	/// [2]: https://mastodon.social/@pid_eins/113548780685011324
+	pub fn parse() -> Self {
+		Self::parse_with_env("RUST_LOG")
+	}
+
+	/// Configure logging if the logline is set.
 	///
 	/// This uses a non-blocking [tracing-subscriber](tracing_subscriber) logger. It returns a guard
 	/// that must be kept alive for the duration of the program, to ensure that logs are output.
 	///
-	/// If `logline` is `None`, this does nothing and returns `Ok(None)`.
+	/// If `logline` is `None`, this does nothing and returns `Ok(None)`. See `parse_with_env` for
+	/// more details.
 	///
 	/// Panics in debug mode if colours are enabled or automatic, but the `ansi` feature is not
 	/// enabled on the `tracing-subscriber` dependency.
