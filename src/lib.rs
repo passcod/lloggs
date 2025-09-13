@@ -8,7 +8,7 @@
 //! It also supports configuring logging before parsing arguments, to allow logging to be set up
 //! using environment variables such as `RUST_LOG` or `DEBUG_INVOCATION`, respects the `NO_COLOR`
 //! (<https://no-color.org>) and `CLICOLOR_FORCE` (<https://bixense.com/clicolors/>) environment
-//! variables, and adjusts defaults when it detects systemd.
+//! variables ([and more][supports_color]), and adjusts defaults when it detects systemd.
 //!
 //! # Example
 //!
@@ -422,7 +422,7 @@ impl ColourMode {
 	/// Whether to use colours.
 	pub fn enabled(self) -> bool {
 		match self {
-			Self::Auto => is_terminal(),
+			Self::Auto => supports_color::on(supports_color::Stream::Stderr).is_some(),
 			Self::Always => true,
 			Self::Never => false,
 		}
@@ -447,9 +447,14 @@ impl ColourMode {
 	/// This complies with <https://bixense.com/clicolors/>.
 	/// `CLICOLOR` is ignored because the default is always `Auto`.
 	pub fn from_env() -> Self {
-		if var("NO_COLOR").is_ok() {
+		if supports_color::on(supports_color::Stream::Stderr).is_none() {
 			Self::Never
-		} else if var("CLICOLOR_FORCE").is_ok() {
+		} else if var("CLICOLOR_FORCE").is_ok()
+			|| var("FORCE_COLOR").map_or(false, |force| match force.as_ref() {
+				"true" | "" => true,
+				"false" => false,
+				f => f.parse().unwrap_or(1) > 0,
+			}) {
 			Self::Always
 		} else if enable_ansi_support::enable_ansi_support().is_err() {
 			Self::Never
