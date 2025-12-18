@@ -151,8 +151,11 @@ pub struct LoggingArgs {
 	///
 	/// This writes diagnostic logs to a file, instead of the terminal, in JSON format.
 	///
-	/// If the path provided is a directory, a file will be created in that directory. The file name
-	/// will be the current date and time, in the format `programname.YYYY-MM-DDTHH-MM-SSZ.log`.
+	/// If the path provided is a directory, a file will be created in that directory with daily
+	/// rotation. The initial file name will be in the format `programname.YYYY-MM-DDTHH-MM-SSZ.log`,
+	/// and a new file will be created each day at midnight UTC.
+	/// 
+	/// If the path is a file, logs will be written to that specific file without rotation.
 	#[arg(
 		long,
 		num_args = 0..=1,
@@ -214,7 +217,7 @@ impl LoggingArgs {
 
 		let (log_writer, guard) = if let Some(file) = &self.log_file {
 			let is_dir = metadata(file).is_ok_and(|info| info.is_dir());
-			let (dir, filename) = if is_dir {
+			let (dir, filename, use_rolling) = if is_dir {
 				let progname = current_exe()
 					.ok()
 					.and_then(|path| {
@@ -231,14 +234,20 @@ impl LoggingArgs {
 				(
 					file.to_owned(),
 					PathBuf::from(format!("{progname}.{time}.log",)),
+					true,
 				)
 			} else if let (Some(parent), Some(file_name)) = (file.parent(), file.file_name()) {
-				(parent.into(), PathBuf::from(file_name))
+				(parent.into(), PathBuf::from(file_name), false)
 			} else {
 				return string_err("Failed to determine log file name");
 			};
 
-			non_blocking(rolling::never(dir, filename))
+			let appender = if use_rolling {
+				rolling::daily(dir, &filename)
+			} else {
+				rolling::never(dir, &filename)
+			};
+			non_blocking(appender)
 		} else {
 			non_blocking(stderr())
 		};
