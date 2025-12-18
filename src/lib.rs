@@ -165,6 +165,14 @@ pub struct LoggingArgs {
 	)]
 	pub log_file: Option<PathBuf>,
 
+	/// Limit the number of log files to keep.
+	///
+	/// When used with a directory in `--log-file`, this controls how many rotated log files are kept.
+	/// Older files are automatically deleted when this limit is reached. Defaults to 32 days of logs.
+	/// Pass 0 to disable rotation and keep all files.
+	#[arg(long, value_name = "COUNT", default_value = "32")]
+	pub log_file_keep: usize,
+
 	/// Omit timestamps in logs.
 	///
 	/// This can be useful when running under service managers that capture logs, to avoid having
@@ -242,10 +250,18 @@ impl LoggingArgs {
 				return string_err("Failed to determine log file name");
 			};
 
-			let appender = if use_rolling {
-				rolling::daily(dir, &filename)
+			let appender = if use_rolling && self.log_file_keep > 0 {
+				let mut builder = rolling::RollingFileAppender::builder()
+					.rotation(rolling::Rotation::DAILY)
+					.filename_prefix(filename.to_string_lossy().to_string());
+				if self.log_file_keep > 0 {
+					builder = builder.max_log_files(self.log_file_keep);
+				}
+				builder
+					.build(&dir)
+					.map_err(|e| tracing_err(Box::new(e)))?
 			} else {
-				rolling::never(dir, &filename)
+				rolling::never(&dir, &filename)
 			};
 			non_blocking(appender)
 		} else {
