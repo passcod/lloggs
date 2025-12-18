@@ -16,7 +16,7 @@ rust-version = "1.74.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.5.48", features = [
+clap = { version = "4.5.53", features = [
 	"derive",
 	"std",
 ], default-features = false }
@@ -27,8 +27,8 @@ time = { version = "0.3.44", features = [
 	"formatting",
 	"macros",
 ], optional = true }
-tracing-appender = { version = "0.2.3", optional = true }
-tracing-subscriber = { version = "0.3.20", features = [
+tracing-appender = { version = "0.2.4", optional = true }
+tracing-subscriber = { version = "0.3.22", features = [
 	"env-filter",
 	"json",
 ], optional = true }
