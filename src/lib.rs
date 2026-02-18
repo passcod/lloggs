@@ -47,6 +47,10 @@
 //!
 //! Include functionality to instantiate a [`tracing_subscriber`] based on the logging options.
 //!
+//! ## `anyhow-1`
+//!
+//! Return [`anyhow::Error`]s instead of Boxed errors.
+//!
 //! ## `miette-7`
 //!
 //! Return [`miette::Report`]s instead of Boxed errors.
@@ -55,12 +59,17 @@ use std::{env::var, ffi::OsStr, io::IsTerminal, path::PathBuf};
 
 use clap::{ArgAction, Parser, ValueEnum, ValueHint};
 
+#[cfg(all(feature = "miette-7", feature = "anyhow-1"))]
+compile_error!("features `miette-7` and `anyhow-1` are mutually exclusive");
+
 #[cfg(feature = "tracing")]
 pub use tracing_appender::non_blocking::WorkerGuard;
 
 #[cfg(feature = "miette-7")]
 type Error = miette::Report;
-#[cfg(not(feature = "miette-7"))]
+#[cfg(feature = "anyhow-1")]
+type Error = anyhow::Error;
+#[cfg(not(any(feature = "miette-7", feature = "anyhow-1")))]
 type Error = Box<dyn std::error::Error + Sync + Send>;
 
 type Result<T> = std::result::Result<T, Error>;
@@ -71,7 +80,12 @@ fn string_err<T>(err: &str) -> Result<T> {
 		Err(miette::miette!("{err}"))
 	}
 
-	#[cfg(not(feature = "miette-7"))]
+	#[cfg(feature = "anyhow-1")]
+	{
+		Err(anyhow::anyhow!("{err}"))
+	}
+
+	#[cfg(not(any(feature = "miette-7", feature = "anyhow-1")))]
 	{
 		Err(err.into())
 	}
@@ -83,7 +97,12 @@ fn tracing_err(err: Box<dyn std::error::Error + Send + Sync>) -> Error {
 		miette::Report::from_err(Box::leak(err) as &_)
 	}
 
-	#[cfg(not(feature = "miette-7"))]
+	#[cfg(feature = "anyhow-1")]
+	{
+		anyhow::anyhow!(err)
+	}
+
+	#[cfg(not(any(feature = "miette-7", feature = "anyhow-1")))]
 	{
 		err
 	}
